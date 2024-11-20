@@ -66,69 +66,64 @@ geoplot_template = """
 		<div id="cesiumContainer"></div>
 		<script>
 			// Your Cesium ion access token here
-			Cesium.Ion.defaultAccessToken = '$accessToken'
+			Cesium.Ion.defaultAccessToken = '$accessToken';
 
-			// Create the viewer
-			const viewer = new Cesium.Viewer('cesiumContainer')
+			// Create the Cesium viewer
+			const viewer = new Cesium.Viewer('cesiumContainer');
 
 			function interpolateColor(color1, color2, factor) {
-				const result = new Cesium.Color()
-				result.red = color1.red + factor * (color2.red - color1.red)
-				result.green =
-					color1.green + factor * (color2.green - color1.green)
-				result.blue = color1.blue + factor * (color2.blue - color1.blue)
-				result.alpha = '$visualType' == 'size' ? 0.2 :
-					color1.alpha + factor * (color2.alpha - color1.alpha)
-				return result
+				const result = new Cesium.Color();
+				result.red = color1.red + factor * (color2.red - color1.red);
+				result.green = color1.green + factor * (color2.green - color1.green);
+				result.blue = color1.blue + factor * (color2.blue - color1.blue);
+				result.alpha = '$visualType' === 'size' ? 0.2 : 
+					color1.alpha + factor * (color2.alpha - color1.alpha);
+				return result;
 			}
 
 			function getColor(value, min, max) {
-				const factor = (value - min) / (max - min)
+				const factor = (value - min) / (max - min);
 				return interpolateColor(
 					Cesium.Color.BLUE,
 					Cesium.Color.RED,
 					factor
-				)
+				);
 			}
 
 			function getPixelSize(value, min, max) {
-				const factor = (value - min) / (max - min)
-				return 100 * (1 + factor)
+				const factor = (value - min) / (max - min);
+				return 100 * (1 + factor);
 			}
 
 			function processTimeSeriesData(geoJsonData) {
-				const timeSeriesMap = new Map()
-				let minValue = Infinity
-				let maxValue = -Infinity
+				const timeSeriesMap = new Map();
+				let minValue = Infinity;
+				let maxValue = -Infinity;
 
 				geoJsonData.features.forEach((feature) => {
-					const id = feature.properties.id
+					const id = feature.properties.id;
 					const time = Cesium.JulianDate.fromIso8601(
 						feature.properties.time
-					)
-					const value = feature.properties.value
-					const coordinates = feature.geometry.coordinates
+					);
+					const value = feature.properties.value;
+					const coordinates = feature.geometry.coordinates;
 
 					if (!timeSeriesMap.has(id)) {
-						timeSeriesMap.set(id, [])
+						timeSeriesMap.set(id, []);
 					}
-					timeSeriesMap.get(id).push({ time, value, coordinates })
+					timeSeriesMap.get(id).push({ time, value, coordinates });
 
-					minValue = Math.min(minValue, value)
-					maxValue = Math.max(maxValue, value)
-				})
+					minValue = Math.min(minValue, value);
+					maxValue = Math.max(maxValue, value);
+				});
 
-				return { timeSeriesMap, minValue, maxValue }
+				return { timeSeriesMap, minValue, maxValue };
 			}
 
-			function createTimeSeriesEntities(
-				timeSeriesData,
-				startTime,
-				stopTime
-			) {
+			function createTimeSeriesEntities(timeSeriesData, startTime, stopTime) {
 				const dataSource = new Cesium.CustomDataSource(
 					'AgentTorch Simulation'
-				)
+				);
 
 				for (const [id, timeSeries] of timeSeriesData.timeSeriesMap) {
 					const entity = new Cesium.Entity({
@@ -141,71 +136,78 @@ geoplot_template = """
 						]),
 						position: new Cesium.SampledPositionProperty(),
 						point: {
-							pixelSize: '$visualType' == 'size' ? new Cesium.SampledProperty(Number) : 10,
+							pixelSize: '$visualType' === 'size' ? new Cesium.SampledProperty(Number) : 10,
 							color: new Cesium.SampledProperty(Cesium.Color),
 						},
 						properties: {
 							value: new Cesium.SampledProperty(Number),
 						},
-					})
+					});
 
 					timeSeries.forEach(({ time, value, coordinates }) => {
-						const position = Cesium.Cartesian3.fromDegrees(
-							coordinates[0],
-							coordinates[1]
-						)
-						entity.position.addSample(time, position)
-						entity.properties.value.addSample(time, value)
-						entity.point.color.addSample(
-							time,
-							getColor(
-								value,
-								timeSeriesData.minValue,
-								timeSeriesData.maxValue
-							)
-						)
+						if (Array.isArray(coordinates[0])) { // Handle polygons
+							const polygonHierarchy = new Cesium.PolygonHierarchy(
+								coordinates[0].map((coord) =>
+									Cesium.Cartesian3.fromDegrees(coord[0], coord[1])
+								)
+							);
 
-						if ('$visualType' == 'size') {
-						  entity.point.pixelSize.addSample(
-  							time,
-  							getPixelSize(
-  								value,
-  								timeSeriesData.minValue,
-  								timeSeriesData.maxValue
-  							)
-  						)
+							viewer.entities.add({
+								polygon: {
+									hierarchy: polygonHierarchy,
+									material: getColor(value, timeSeriesData.minValue, timeSeriesData.maxValue),
+								},
+							});
+						} else { // Handle points
+							const position = Cesium.Cartesian3.fromDegrees(
+								coordinates[0],
+								coordinates[1]
+							);
+							entity.position.addSample(time, position);
+							entity.properties.value.addSample(time, value);
+							entity.point.color.addSample(
+								time,
+								getColor(value, timeSeriesData.minValue, timeSeriesData.maxValue)
+							);
+
+							if ('$visualType' === 'size') {
+								entity.point.pixelSize.addSample(
+									time,
+									getPixelSize(value, timeSeriesData.minValue, timeSeriesData.maxValue)
+								);
+							}
 						}
-					})
+					});
 
-					dataSource.entities.add(entity)
+					dataSource.entities.add(entity);
 				}
 
-				return dataSource
+				return dataSource;
 			}
 
 			// Example time-series GeoJSON data
-			const geoJsons = $data
+			const geoJsons = $data;
 
-			const start = Cesium.JulianDate.fromIso8601('$startTime')
-			const stop = Cesium.JulianDate.fromIso8601('$stopTime')
+			const start = Cesium.JulianDate.fromIso8601('$startTime');
+			const stop = Cesium.JulianDate.fromIso8601('$stopTime');
 
-			viewer.clock.startTime = start.clone()
-			viewer.clock.stopTime = stop.clone()
-			viewer.clock.currentTime = start.clone()
-			viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP
-			viewer.clock.multiplier = 3600 // 1 hour per second
+			viewer.clock.startTime = start.clone();
+			viewer.clock.stopTime = stop.clone();
+			viewer.clock.currentTime = start.clone();
+			viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+			viewer.clock.multiplier = 3600; // 1 hour per second
 
-			viewer.timeline.zoomTo(start, stop)
+			viewer.timeline.zoomTo(start, stop);
 
 			for (const geoJsonData of geoJsons) {
-				const timeSeriesData = processTimeSeriesData(geoJsonData)
+				const timeSeriesData = processTimeSeriesData(geoJsonData);
 				const dataSource = createTimeSeriesEntities(
 					timeSeriesData,
 					start,
 					stop
-				)
-				viewer.dataSources.add(dataSource)
-				viewer.zoomTo(dataSource)
+				);
+				viewer.dataSources.add(dataSource);
+				viewer.zoomTo(dataSource);
 			}
 		</script>
 	</body>
@@ -260,19 +262,34 @@ class GeoPlot:
         for i, coord in enumerate(coords):
             features = []
             for time, value_list in zip(timestamps, values):
-                features.append(
-                    {
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [coord[1], coord[0]],
-                        },
-                        "properties": {
-                            "value": value_list[i],
-                            "time": time.isoformat(),
-                        },
-                    }
-                )
+                if isinstance(coord[0], list):  # Check if it's a polygon
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": [coord],  # Wrap in another list for GeoJSON format
+                            },
+                            "properties": {
+                                "value": value_list[i],
+                                "time": time.isoformat(),
+                            },
+                        }
+                    )
+                else:  # It's a point
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [coord[1], coord[0]],
+                            },
+                            "properties": {
+                                "value": value_list[i],
+                                "time": time.isoformat(),
+                            },
+                        }
+                    )
             geojsons.append({"type": "FeatureCollection", "features": features})
 
         with open(geodata_path, "w", encoding="utf-8") as f:
