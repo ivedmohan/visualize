@@ -17,6 +17,7 @@ share/
 profile_default/
 ipython_config.py
 
+.idea/
 .env
 .venv
 env/
